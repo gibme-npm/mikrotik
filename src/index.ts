@@ -420,7 +420,7 @@ export default class Mikrotik extends SSH {
      * @param target
      * @param source
      */
-    public async ping (target: string, source?: string): Promise<any> {
+    public async ping (target: string, source?: string): Promise<Response.Ping> {
         const result: Response.Ping = {
             target,
             latency: 2000
