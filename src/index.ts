@@ -24,6 +24,9 @@ import ip from 'ip';
 import Cache from '@gibme/cache/memory';
 import { reverse } from 'dns';
 
+export type BandwidthTestDirection = BandwidthTest.Direction;
+export type BandwidthTestProtocol = BandwidthTest.Protocol;
+export type BandwidthTestStatus = BandwidthTest.Status;
 export type BandwidthTestUpdate = BandwidthTest.Update;
 export type BandwidthTestOptions = BandwidthTest.Options;
 

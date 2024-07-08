@@ -1,6 +1,6 @@
 {
   "name": "@gibme/mikrotik",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A simple mikrotik helper/wrapper",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
