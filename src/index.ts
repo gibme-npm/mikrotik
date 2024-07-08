@@ -24,7 +24,15 @@ import ip from 'ip';
 import Cache from '@gibme/cache/memory';
 import { reverse } from 'dns';
 
-export { BandwidthTest };
+export type BandwidthTestUpdate = BandwidthTest.Update;
+export type BandwidthTestOptions = BandwidthTest.Options;
+
+export type Address = Response.Address;
+export type Interface = Response.Interface;
+export type Route = Response.Route;
+export type RouteCount = Response.RouteCount;
+export type Ping = Response.Ping;
+export type Traceroute = Response.Traceroute;
 
 export default class Mikrotik extends SSH {
     protected static cache: Cache = new Cache({
@@ -38,7 +46,7 @@ export default class Mikrotik extends SSH {
      * @param min_distance
      * @param vrf
      */
-    public async get_ip_routes (min_distance = 0, vrf?: string): Promise<Response.Route[]> {
+    public async get_ip_routes (min_distance = 0, vrf?: string): Promise<Route[]> {
         const ifaces = await this.get_interfaces();
 
         const ips = await this.get_ip_addresses();
@@ -114,7 +122,7 @@ export default class Mikrotik extends SSH {
     /**
      * Retrieves the IP addresses active on the system
      */
-    public async get_ip_addresses (): Promise<Response.Address[]> {
+    public async get_ip_addresses (): Promise<Address[]> {
         const addresses = await this.terse<{
             address: string,
             network: string;
@@ -140,7 +148,7 @@ export default class Mikrotik extends SSH {
     /**
      * Retrieves the interfaces active on the system
      */
-    public async get_interfaces (): Promise<Response.Interface[]> {
+    public async get_interfaces (): Promise<Interface[]> {
         const ifaces = await this.terse<{
             name: string;
             type: string;
@@ -220,12 +228,12 @@ export default class Mikrotik extends SSH {
      * @param min_distance
      * @param vrf
      */
-    public async get_route_counts (min_distance = 0, vrf?: string): Promise<Record<string, Response.RouteCount>> {
+    public async get_route_counts (min_distance = 0, vrf?: string): Promise<Record<string, RouteCount>> {
         const routes = await this.get_ip_routes(min_distance, vrf);
 
         const ips = await this.get_ip_addresses();
 
-        const results: Record<string, Response.RouteCount> = {};
+        const results: Record<string, RouteCount> = {};
 
         ips.forEach(ip => {
             results[ip.ipaddress] = {
@@ -269,15 +277,14 @@ export default class Mikrotik extends SSH {
         target: string,
         username: string,
         password: string,
-        options: Partial<BandwidthTest.Options> = {
+        options: Partial<BandwidthTestOptions> = {
             duration: 15,
             direction: 'both',
             protocol: 'udp',
             random_data: false,
-            callback: () => {
-            }
+            callback: () => {}
         }
-    ): Promise<BandwidthTest.Update> {
+    ): Promise<BandwidthTestUpdate> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const $ = this;
 
@@ -290,8 +297,7 @@ export default class Mikrotik extends SSH {
             options.direction ??= 'both';
             options.protocol ??= 'udp';
             options.random_data ??= false;
-            options.callback ??= () => {
-            };
+            options.callback ??= () => {};
 
             /**
              * This serves as a lazy "mutex" that prevents us from running
@@ -351,7 +357,7 @@ export default class Mikrotik extends SSH {
             async function handleStream (buffer: Buffer) {
                 const frame = new BandwidthTest.Frame(buffer).parse();
 
-                const result: BandwidthTest.Update = {
+                const result: BandwidthTestUpdate = {
                     status: frame.status as any,
                     duration: parseInt(frame.duration) || 0,
                     randomData: frame['random-data'] === 'yes',
@@ -420,8 +426,8 @@ export default class Mikrotik extends SSH {
      * @param target
      * @param source
      */
-    public async ping (target: string, source?: string): Promise<Response.Ping> {
-        const result: Response.Ping = {
+    public async ping (target: string, source?: string): Promise<Ping> {
+        const result: Ping = {
             target,
             latency: 2000
         };
@@ -465,7 +471,7 @@ export default class Mikrotik extends SSH {
     public async traceroute (
         target: string,
         source?: string
-    ): Promise<Response.Traceroute[]> {
+    ): Promise<Traceroute[]> {
         let command = `/tool traceroute address=${target} count=1`;
 
         if (source) {
@@ -486,7 +492,7 @@ export default class Mikrotik extends SSH {
 
         if (!response) throw new Error(`Could not perform traceroute to ${target}`);
 
-        const results: Response.Traceroute[] = [];
+        const results: Traceroute[] = [];
 
         const resolve = async (ip: string): Promise<[string, string | undefined]> => new Promise(resolve => {
             reverse(ip, (error, addresses) => {
@@ -497,7 +503,7 @@ export default class Mikrotik extends SSH {
         });
 
         for (const [hop, address, loss, sent, last, avg, best, worst] of response) {
-            const result: Response.Traceroute = {
+            const result: Traceroute = {
                 hop: parseInt(hop),
                 loss: (sent === 'timeout' ? parseInt(address) : parseInt(loss)) / 100,
                 sent: sent === 'timeout' ? parseInt(loss) : parseInt(sent),
