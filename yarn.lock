@@ -79,10 +79,10 @@
     pg-format "^1.0.4"
     sqlite3 "^5.1.7"
 
-"@gibme/ssh@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@gibme/ssh/-/ssh-1.0.0.tgz#00d9f7b156e067a3616fea974f18f51ff1386f0b"
-  integrity sha512-2RwL5ojY/xq5a/BWNFs8xVyYv3V7gj/0p5hAzBRURvySvqeUPN3MKHAR9UX4EpAME++3GypYJFeBYSmAhx0TVQ==
+"@gibme/ssh@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@gibme/ssh/-/ssh-1.0.1.tgz#0c39a40415f7656f9cfc4c83ba88246a0455bf7c"
+  integrity sha512-gS3U00HiHD46g8p70FW1Rl8s/bTWjGa5bnlwvDPv8gKitg54HVMajyciSf3L5MVSDvnWgBqnTy4e3akEAkISTA==
   dependencies:
     "@gibme/bytepack" "^1.0.6"
     "@gibme/timer" "^1.0.6"

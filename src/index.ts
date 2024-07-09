@@ -23,12 +23,13 @@ import { BandwidthTest, Response } from './types';
 import ip from 'ip';
 import Cache from '@gibme/cache/memory';
 import { reverse } from 'dns';
+export { ConnectConfig } from '@gibme/ssh';
 
-export type BandwidthTestDirection = BandwidthTest.Direction;
-export type BandwidthTestProtocol = BandwidthTest.Protocol;
-export type BandwidthTestStatus = BandwidthTest.Status;
-export type BandwidthTestUpdate = BandwidthTest.Update;
-export type BandwidthTestOptions = BandwidthTest.Options;
+export type Direction = BandwidthTest.Direction;
+export type Protocol = BandwidthTest.Protocol;
+export type Status = BandwidthTest.Status;
+export type Update = BandwidthTest.Update;
+export type Options = BandwidthTest.Options;
 
 export type Address = Response.Address;
 export type Interface = Response.Interface;
@@ -280,14 +281,14 @@ export default class Mikrotik extends SSH {
         target: string,
         username: string,
         password: string,
-        options: Partial<BandwidthTestOptions> = {
+        options: Partial<Options> = {
             duration: 15,
             direction: 'both',
             protocol: 'udp',
             random_data: false,
             callback: () => {}
         }
-    ): Promise<BandwidthTestUpdate> {
+    ): Promise<Update> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const $ = this;
 
@@ -360,7 +361,7 @@ export default class Mikrotik extends SSH {
             async function handleStream (buffer: Buffer) {
                 const frame = new BandwidthTest.Frame(buffer).parse();
 
-                const result: BandwidthTestUpdate = {
+                const result: Update = {
                     status: frame.status as any,
                     duration: parseInt(frame.duration) || 0,
                     randomData: frame['random-data'] === 'yes',
@@ -408,8 +409,7 @@ export default class Mikrotik extends SSH {
 
             this.on('stream', handleStream);
 
-            // set our mutex
-            await Mikrotik.cache.set(target, target, options.duration);
+            await Mikrotik.cache.set(target, target, options.duration); // set our mutex
 
             await this.stream(`/tool bandwidth-test protocol=${options.protocol} ` +
                 `user=${username} password=${password} ` +
