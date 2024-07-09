@@ -50,7 +50,10 @@ export default class Mikrotik extends SSH {
      * @param min_distance
      * @param vrf
      */
-    public async get_ip_routes (min_distance = 0, vrf?: string): Promise<Route[]> {
+    public async get_ip_routes (
+        min_distance = 0,
+        vrf?: string
+    ): Promise<Route[]> {
         const ifaces = await this.get_interfaces();
 
         const ips = await this.get_ip_addresses();
@@ -232,7 +235,10 @@ export default class Mikrotik extends SSH {
      * @param min_distance
      * @param vrf
      */
-    public async get_route_counts (min_distance = 0, vrf?: string): Promise<Record<string, RouteCount>> {
+    public async get_route_counts (
+        min_distance = 0,
+        vrf?: string
+    ): Promise<Record<string, RouteCount>> {
         const routes = await this.get_ip_routes(min_distance, vrf);
 
         const ips = await this.get_ip_addresses();
@@ -260,7 +266,9 @@ export default class Mikrotik extends SSH {
             }
         }
 
-        results[best.ip].active = true;
+        if (results[best.ip]) {
+            results[best.ip].active = true;
+        }
 
         return results;
     }
