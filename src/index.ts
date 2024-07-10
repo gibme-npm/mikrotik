@@ -19,11 +19,13 @@
 // SOFTWARE.
 
 import SSH from '@gibme/ssh';
-import { BandwidthTest, Response } from './types';
-import ip from 'ip';
+import { BandwidthTest, CommandResponses, Response } from './types';
+import { Address4 } from 'ip-address';
 import Cache from '@gibme/cache/memory';
 import { reverse } from 'dns';
-export { ConnectConfig } from '@gibme/ssh';
+import { coerce, valid } from 'semver';
+
+export type { ConnectConfig } from '@gibme/ssh';
 
 export type Direction = BandwidthTest.Direction;
 export type Protocol = BandwidthTest.Protocol;
@@ -33,10 +35,26 @@ export type Options = BandwidthTest.Options;
 
 export type Address = Response.Address;
 export type Interface = Response.Interface;
+export type Tunnel = Response.Tunnel;
 export type Route = Response.Route;
 export type RouteCount = Response.RouteCount;
 export type Ping = Response.Ping;
 export type Traceroute = Response.Traceroute;
+export type RouterBoard = Response.Routerboard
+export type Resource = Response.Resource;
+export type Health = Response.Health;
+
+/** @ignore */
+const toVersion = (version: string) => valid(coerce(version)) || version;
+
+/** @ignore */
+const toIP4 = (address: string) => {
+    try {
+        return new Address4(address);
+    } catch {
+        return undefined;
+    }
+};
 
 export default class Mikrotik extends SSH {
     protected static cache: Cache = new Cache({
@@ -49,43 +67,43 @@ export default class Mikrotik extends SSH {
      *
      * @param min_distance
      * @param vrf
+     * @param active_only
      */
     public async get_ip_routes (
         min_distance = 0,
-        vrf?: string
+        vrf?: string,
+        active_only = true
     ): Promise<Route[]> {
-        const ifaces = await this.get_interfaces();
+        const [ifaces, ips] = await Promise.all([
+            this.get_interfaces(),
+            this.get_ip_addresses()
+        ]);
 
-        const ips = await this.get_ip_addresses();
+        const command = `/ip route print terse without-paging${active_only ? ' where active' : ''}`;
 
-        const routes = await this.terse<{
-            'dst-address': string;
-            gateway: string;
-            distance: string;
-            scope: string;
-            target_scope: string;
-            'routing-mark'?: string;
-        }>('/ip route print terse without-paging where active');
+        const routes = await this.terse<CommandResponses.Route>(command);
 
         return routes.map(route => {
             const _network = route['dst-address'].split('/');
             const address = _network[0];
             const cidr = parseInt(_network[1]);
             const [gateway, iface] = (() => {
-                if (route.gateway) {
-                    if (route.gateway.includes('%')) {
-                        return route.gateway.split('%', 2);
-                    } else if (ip.isV4Format(route.gateway)) {
-                        const ip = ips.filter(ip => ip.isLocal(route.gateway)).shift();
+                if (!route.gateway) return [undefined, undefined];
 
-                        return [route.gateway, ip?.iface];
-                    } else {
-                        const ip = ips.filter(ip => ip.iface === route.gateway).shift();
+                const gw = toIP4(route.gateway);
 
-                        return [ip?.ipaddress, route.gateway];
-                    }
+                if (route.gateway.includes('%')) {
+                    const [gateway, ...iface] = route.gateway.split('%');
+
+                    return [gateway, iface.join('%')];
+                } else if (gw) {
+                    const ip = ips.filter(ip => ip.includes(route.gateway)).shift();
+
+                    return [route.gateway, ip?.iface];
                 } else {
-                    return [undefined, undefined];
+                    const ip = ips.filter(ip => ip.iface === route.gateway).shift();
+
+                    return [ip?.ipaddress, route.gateway];
                 }
             })();
             const distance = parseInt(route.distance);
@@ -93,38 +111,45 @@ export default class Mikrotik extends SSH {
             const target_scope = parseInt(route.target_scope) || undefined;
 
             // this does not account for if a device has multiple addresses in the same network
-            const preferred_source = ips.filter(ip => gateway ? ip.isLocal(gateway) : false).shift()?.ipaddress;
-            const _vrf = route['routing-mark'] || 'main';
+            const preferred_source = ips.filter(ip => gateway ? ip.includes(gateway) : false).shift()?.ipaddress;
+            const _vrf = route['routing-table'] || route['routing-mark'] || 'main';
 
-            const tunnel = (() => {
+            const tunnel: Tunnel | undefined = (() => {
                 const tunnel = ifaces.filter(_iface => _iface.name === iface).shift();
+                const parent = ips.filter(ip => ip.ipaddress === tunnel?.local_address).shift();
 
-                if (!tunnel) return undefined;
-
-                const root = ips.filter(ip => ip.ipaddress === tunnel.local_address).shift();
-
-                if (!root) return undefined;
+                if (!tunnel || !parent) return undefined;
 
                 return {
                     ...tunnel,
-                    root
+                    parent
                 };
             })();
 
-            return {
-                network: {
-                    address,
-                    cidr
-                },
-                preferred_source,
-                gateway,
-                iface,
-                tunnel,
+            const result: Route = {
+                network: address,
+                cidr,
                 distance,
                 scope,
-                target_scope,
-                vrf: _vrf
+                vrf: _vrf,
+                includes: (ipaddress: string): boolean => {
+                    const temp_address = toIP4(ipaddress);
+                    const temp_network = toIP4(`${address}/${cidr}`);
+
+                    if (!temp_address || !temp_network) return false;
+
+                    return temp_address.isInSubnet(temp_network);
+                }
             };
+
+            if (preferred_source) result.preferred_source = preferred_source;
+            if (gateway) result.gateway = gateway;
+            if (iface) result.iface = iface;
+            if (tunnel) result.tunnel = tunnel;
+            if (target_scope) result.target_scope = target_scope;
+            if (route.comment) result.comment = route.comment;
+
+            return result;
         })
             .filter(route => route.distance >= min_distance)
             .filter(route => vrf ? route.vrf === vrf : true);
@@ -132,103 +157,98 @@ export default class Mikrotik extends SSH {
 
     /**
      * Retrieves the IP addresses active on the system
+     *
+     * @param active_only
      */
-    public async get_ip_addresses (): Promise<Address[]> {
-        const addresses = await this.terse<{
-            address: string,
-            network: string;
-            interface: string
-        }>('/ip address print terse without-paging where !disabled');
+    public async get_ip_addresses (
+        active_only = true
+    ): Promise<Address[]> {
+        const command = `/ip address print terse without-paging${active_only ? ' where !disabled' : ''}`;
+
+        const addresses = await this.terse<CommandResponses.Address>(command);
 
         return addresses.map(line => {
             const _address = line.address.split('/');
             const ipaddress = _address[0];
             const cidr = parseInt(_address[1]);
 
-            return {
+            const result: Address = {
                 ipaddress,
                 network: line.network,
                 cidr,
                 iface: line.interface,
-                isLocal: (ipaddress: string): boolean =>
-                    ip.cidrSubnet(`${line.network}/${cidr}`).contains(ipaddress)
+                includes: (ipaddress: string): boolean => {
+                    const temp_address = toIP4(ipaddress);
+                    const temp_network = toIP4(`${line.network}/${cidr}`);
+
+                    if (!temp_address || !temp_network) return false;
+
+                    return temp_address.isInSubnet(temp_network);
+                }
             };
+
+            if (line.comment) result.comment = line.comment;
+
+            return result;
         });
     }
 
     /**
      * Retrieves the interfaces active on the system
+     *
+     * @param active_only
      */
-    public async get_interfaces (): Promise<Interface[]> {
-        const ifaces = await this.terse<{
-            name: string;
-            type: string;
-        }>('/interface print terse without-paging where !disabled');
+    public async get_interfaces (active_only = true): Promise<Interface[]> {
+        const filter = active_only ? ' where !disabled' : '';
 
-        const gre = await this.terse<{
-            name: string;
-            'local-address': string;
-            'remote-address': string;
-        }>('/interface gre print terse without-paging where !disabled');
+        const [ifaces, gre, ipip, eoip] = await Promise.all([
+            this.terse<CommandResponses.Interface>(
+                `/interface print terse without-paging${filter}`),
+            this.terse<CommandResponses.TunnelInterface>(
+                `/interface gre print terse without-paging${filter}`),
+            this.terse<CommandResponses.TunnelInterface>(
+                `/interface ipip print terse without-paging${filter}`),
+            this.terse<CommandResponses.TunnelInterface>(
+                `/interface eoip print terse without-paging${filter}`)
+        ]);
 
-        const ipip = await this.terse<{
-            name: string;
-            'local-address': string;
-            'remote-address': string;
-        }>('/interface ipip print terse without-paging where !disabled');
-
-        const eoip = await this.terse<{
-            name: string;
-            'local-address': string;
-            'remote-address': string;
-        }>('/interface eoip print terse without-paging where !disabled');
+        const tunnels: CommandResponses.TunnelInterface[] = [...gre, ...ipip, ...eoip];
 
         return ifaces.map(line => {
             const _type = (() => {
                 switch (line.type) {
+                    case 'ether':
+                        return 'ethernet';
+                    case 'lo':
+                        return 'loopback';
                     case 'gre-tunnel':
                         return 'gre';
                     case 'ipip-tunnel':
                         return 'ipip';
                     case 'eoip-tunnel':
                         return 'eoip';
+                    case 'wg':
+                        return 'wireguard';
                     default:
                         return line.type;
                 }
             })();
 
-            const local_address = (() => {
-                switch (line.type) {
-                    case 'gre-tunnel':
-                        return gre.filter(tunnel => tunnel.name === line.name)[0]['local-address'];
-                    case 'ipip':
-                        return ipip.filter(tunnel => tunnel.name === line.name)[0]['local-address'];
-                    case 'eoip':
-                        return eoip.filter(tunnel => tunnel.name === line.name)[0]['local-address'];
-                    default:
-                        return undefined;
-                }
-            })();
+            const tunnel = tunnels.filter(tunnel => tunnel.name === line.name).shift();
 
-            const remote_address = (() => {
-                switch (line.type) {
-                    case 'gre-tunnel':
-                        return gre.filter(tunnel => tunnel.name === line.name)[0]['remote-address'];
-                    case 'ipip':
-                        return ipip.filter(tunnel => tunnel.name === line.name)[0]['remote-address'];
-                    case 'eoip':
-                        return eoip.filter(tunnel => tunnel.name === line.name)[0]['remote-address'];
-                    default:
-                        return undefined;
-                }
-            })();
+            const local_address = tunnel?.['local-address'];
+            const remote_address = tunnel?.['remote-address'];
 
-            return {
+            const result: Interface = {
                 name: line.name,
-                type: _type,
-                local_address,
-                remote_address
+                type: _type
             };
+
+            if (local_address) result.local_address = local_address;
+            if (remote_address) result.remote_address = remote_address;
+            if (line.comment) result.comment = line.comment;
+
+            return result;
         });
     }
 
@@ -243,9 +263,10 @@ export default class Mikrotik extends SSH {
         min_distance = 0,
         vrf?: string
     ): Promise<Record<string, RouteCount>> {
-        const routes = await this.get_ip_routes(min_distance, vrf);
-
-        const ips = await this.get_ip_addresses();
+        const [routes, ips] = await Promise.all([
+            this.get_ip_routes(min_distance, vrf),
+            this.get_ip_addresses()
+        ]);
 
         const results: Record<string, RouteCount> = {};
 
@@ -263,12 +284,12 @@ export default class Mikrotik extends SSH {
             count: 0
         };
 
-        for (const key of Object.keys(results)) {
+        Object.keys(results).forEach(key => {
             if (results[key].count > best.count) {
                 best.count = results[key].count;
                 best.ip = key;
             }
-        }
+        });
 
         if (results[best.ip]) {
             results[best.ip].active = true;
@@ -293,13 +314,7 @@ export default class Mikrotik extends SSH {
         target: string,
         username: string,
         password: string,
-        options: Partial<Options> = {
-            duration: 15,
-            direction: 'both',
-            protocol: 'udp',
-            random_data: false,
-            callback: () => {}
-        }
+        options: Partial<Options> = {}
     ): Promise<Update> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const $ = this;
@@ -449,11 +464,7 @@ export default class Mikrotik extends SSH {
 
         if (source) result.source = source;
 
-        let command = `/ping address=${target} count=1`;
-
-        if (source) {
-            command += ` src-address=${source}`;
-        }
+        const command = `/ping address=${target} count=1${source ? ` src-address=${source}` : ''}`;
 
         try {
             const response = (await this.exec(command))
@@ -487,11 +498,7 @@ export default class Mikrotik extends SSH {
         target: string,
         source?: string
     ): Promise<Traceroute[]> {
-        let command = `/tool traceroute address=${target} count=1`;
-
-        if (source) {
-            command += ` src-address=${source}`;
-        }
+        const command = `/tool traceroute address=${target} count=1${source ? ` src-address=${source}` : ''}`;
 
         const response = (await this.exec(command))
             .toString()
@@ -509,7 +516,7 @@ export default class Mikrotik extends SSH {
 
         const results: Traceroute[] = [];
 
-        const resolve = async (ip: string): Promise<[string, string | undefined]> => new Promise(resolve => {
+        const resolveDNS = async (ip: string): Promise<[string, string | undefined]> => new Promise(resolve => {
             reverse(ip, (error, addresses) => {
                 if (error) return resolve([ip, undefined]);
 
@@ -536,7 +543,7 @@ export default class Mikrotik extends SSH {
 
         (await Promise.all(
             results.filter(result => result.address)
-                .map(result => resolve(result.address || ''))))
+                .map(result => resolveDNS(result.address || ''))))
             .forEach(result => {
                 for (let i = 0; i < results.length; i++) {
                     if (result[0] === results[i].address && result[1]) {
@@ -546,6 +553,173 @@ export default class Mikrotik extends SSH {
             });
 
         return results;
+    }
+
+    /**
+     * Fetches routerboard information from the device
+     */
+    public async routerboard (): Promise<Response.Routerboard> {
+        const result = await this.kvs<CommandResponses.Routeboard>(
+            '/system routerboard print');
+
+        return {
+            routerboard: result.routerboard === 'yes',
+            board_name: result['board-name'],
+            model: result.model,
+            serial_number: result['serial-number'],
+            firmware_type: result['firmware-type'],
+            factory_firmware: toVersion(result['factory-firmware']),
+            current_firmware: toVersion(result['current-firmware']),
+            upgrade_firmware: toVersion(result['upgrade-firmware'])
+        };
+    }
+
+    /**
+     * Fetches the identity of the device
+     */
+    public async identity (): Promise<string> {
+        const response = await this.kvs<CommandResponses.Identity>(
+            '/system identity print');
+
+        return response.name;
+    }
+
+    /**
+     * Fetches the resource information of the device
+     */
+    public async resource (): Promise<Response.Resource> {
+        const response = await this.kvs<CommandResponses.Resource>(
+            '/system resource print');
+
+        const result: Response.Resource = {
+            uptime: response.uptime,
+            version: toVersion(response.version),
+            build_time: new Date(`${response['build-time']}Z`),
+            factory_sofware: response['factory-software'],
+            free_memory: response['free-memory'],
+            total_memory: response['total-memory'],
+            cpu: response.cpu,
+            cpu_count: parseInt(response['cpu-count']) || 0,
+            cpu_frequency: parseInt(response['cpu-frequency']) || 0,
+            cpu_load: (parseInt(response['cpu-load']) || 0) / 100,
+            hdd_space: {
+                free: response['free-hdd-space'],
+                total: response['total-hdd-space']
+            },
+            architecture_name: response['architecture-name'],
+            board_name: response['board-name'],
+            platform: response.platform
+        };
+
+        if (response.version.includes('long-term')) {
+            result.lts = true;
+        } else if (response.version.includes('stable')) {
+            result.stable = true;
+        } else if (response.version.includes('testing')) {
+            result.testing = true;
+        } else if (response.version.includes('development')) {
+            result.development = true;
+        }
+
+        if (response['write-sect-since-reboot'] && response['write-sect-total'] && response['bad-blocks']) {
+            result.nvram = {
+                write_since_reboot: parseInt(response['write-sect-since-reboot']) || 0,
+                write_total: parseInt(response['write-sect-total']) || 0,
+                bad_blocks: parseInt(response['bad-blocks']) || 0
+            };
+        }
+
+        return result;
+    }
+
+    /**
+     * Fetches the current RouterOS version
+     */
+    public async version (): Promise<string> {
+        return (await this.resource()).version;
+    }
+
+    /**
+     * Fetches the semantic RouterOS version
+     */
+    public async semantic_version (): Promise<{ major: number; minor: number; patch: number }> {
+        const version = await this.version();
+
+        const [major, minor, patch] = version.split('.')
+            .map(elem => parseInt(elem) || 0);
+
+        return {
+            major,
+            minor,
+            patch
+        };
+    }
+
+    /**
+     * Fetches the current health information
+     */
+    public async health (): Promise<Response.Health> {
+        const { major } = await this.semantic_version();
+
+        const result: Response.Health = {} as any;
+
+        if (major === 6) {
+            const response = await this.kvs<CommandResponses.Health>(
+                '/system health print');
+
+            result.voltage = parseFloat(response.voltage) || 0;
+            result.current = parseFloat(response.current) || 0;
+            result.temperature = parseFloat(response.temperature) || 0;
+            result.power_consumption = parseFloat(response['power-consumption']) || 0;
+
+            if (response['psu-voltage']) {
+                result.psu_voltage = parseFloat(response['psu-voltage']);
+            }
+
+            if (response['psu1-voltage']) {
+                result.psu1_voltage = parseFloat(response['psu1-voltage']);
+            }
+
+            if (response['psu2-voltage']) {
+                result.psu2_voltage = parseFloat(response['psu2-voltage']);
+            }
+
+            return result;
+        } else if (major === 7) {
+            const response = await this.terse<{ name: string, value: string, type: string }>(
+                '/system health print terse');
+
+            for (const { name, value, type } of response) {
+                const num = parseFloat(value) || 0;
+
+                switch (name) {
+                    case 'voltage':
+                        result.voltage = num;
+                        break;
+                    case 'temperature':
+                        result.temperature = num;
+                        break;
+                    case 'power-consumption':
+                        result.power_consumption = num;
+                        break;
+                    case 'current':
+                        result.current = type === 'A' ? num * 1000 : num;
+                        break;
+                    case 'psu-voltage':
+                        result.psu_voltage = num;
+                        break;
+                    case 'psu1-voltage':
+                        result.psu1_voltage = num;
+                        break;
+                    case 'psu2-voltage':
+                        result.psu2_voltage = num;
+                }
+            }
+
+            return result;
+        } else {
+            throw new Error('RouterOS version is not supported for this command');
+        }
     }
 
     /**
@@ -561,24 +735,50 @@ export default class Mikrotik extends SSH {
             .toString()
             .split('\r\n')
             .map(line => line.trim())
-            .filter(line =>
-                line.split(/\s+/)
-                    .length !== 0 && line.length !== 0);
+            .filter(line => line.split(/\s+/).length !== 0 && line.length !== 0);
 
         lines.forEach(line => {
             const result: Type = {} as any;
 
             line.split(/\s+/)
-                .filter(col => col.includes('='))
+                .map(col => col.trim())
                 .forEach(col => {
-                    const [key, value] = col.split('=', 2);
+                    if (col.includes('=')) {
+                        const [key, ...value] = col.split('=');
 
-                    (result as any)[key] = value;
+                        (result as any)[key] = value.join('=');
+                    } else {
+                        (result as any)[col] = col;
+                    }
                 });
 
             if (Object.keys(result).length !== 0) results.push(result);
         });
 
         return results;
+    }
+
+    /**
+     * Executes a command that expects the result as a 'table' of key-value pairs separated by a colon (:)
+     *
+     * @param command
+     * @protected
+     */
+    protected async kvs<Type extends object = any> (command: string): Promise<Type> {
+        const result: Type = {} as any;
+
+        const lines = (await this.exec(command))
+            .toString()
+            .split('\r\n')
+            .map(line => line.trim())
+            .filter(line => line.length !== 0)
+            .map(line => line.split(':')
+                .map(col => col.trim()));
+
+        for (const [key, ...value] of lines) {
+            (result as any)[key] = value.join(':');
+        }
+
+        return result;
     }
 }

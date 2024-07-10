@@ -85,17 +85,123 @@ export namespace BandwidthTest {
     }
 }
 
+export namespace CommandResponses {
+    export type YesNo = 'yes' | 'no';
+
+    export interface Comment {
+        comment?: string;
+    }
+
+    export interface Route extends Comment {
+        'dst-address': string;
+        gateway: string;
+        distance: string;
+        scope: string;
+        target_scope: string;
+        'routing-table'?: string;
+        'routing-mark'?: string;
+        'bgp-as-path'?: string;
+        'bgp-origin'?: string;
+        'bgp-local-pref'?: string;
+        'received-from'?: string;
+        'check-gateway'?: string;
+        'suppress-hw-offload'?: string;
+        'blackhole'?: string;
+        'immediate-gw'?: string;
+        reachable?: string;
+        'gateway-status'?: string;
+    }
+
+    export interface Address extends Comment {
+        address: string;
+        network: string;
+        interface: string;
+        'actual-interface': string;
+    }
+
+    export interface Interface extends Comment {
+        name: string;
+        type: string;
+        mtu: string;
+        'default-name'?: string;
+        'actual-mtu': string;
+        'mac-address'?: string;
+        'link-downs'?: string;
+        l2mtu?: string;
+    }
+
+    export interface TunnelInterface extends Omit<Interface, 'type'>, Comment {
+        'local-address': string;
+        'remote-address': string;
+        'clamp-tcp-mss': YesNo;
+        'dont-fragment': YesNo;
+        'allow-fast-path': YesNo;
+    }
+
+    export interface Routeboard {
+        routerboard: YesNo;
+        'board-name': string;
+        model: string;
+        'serial-number': string;
+        'firmware-type': string;
+        'factory-firmware': string;
+        'current-firmware': string;
+        'upgrade-firmware': string;
+    }
+
+    export interface Identity {
+        name: string;
+    }
+
+    export interface Resource {
+        uptime: string;
+        version: string;
+        'build-time': string;
+        'factory-software': string;
+        'free-memory': string;
+        'total-memory': string;
+        cpu: string;
+        'cpu-count': string;
+        'cpu-frequency': string;
+        'cpu-load': string;
+        'free-hdd-space': string;
+        'total-hdd-space': string;
+        'architecture-name': string;
+        'board-name': string;
+        platform: string;
+        'write-sect-since-reboot'?: string;
+        'write-sect-total'?: string;
+        'bad-blocks'?: string;
+    }
+
+    export interface Health {
+        voltage: string;
+        current: string;
+        temperature: string;
+        'power-consumption': string;
+        'psu-voltage'?: string;
+        'psu1-voltage'?: string;
+        'psu2-voltage'?: string;
+    }
+}
+
 export namespace Response {
-    export interface Address {
+    interface includesAddress {
+        includes(ipaddress: string): boolean;
+    }
+
+    interface Comment {
+        comment?: string;
+    }
+
+    export interface Address extends includesAddress, Comment {
         ipaddress: string;
         network: string;
         cidr: number;
         iface: string;
-
-        isLocal(ipaddress: string): boolean;
     }
 
-    export interface Interface {
+    export interface Interface extends Comment {
         name: string;
         type: string;
         local_address?: string;
@@ -103,22 +209,20 @@ export namespace Response {
     }
 
     export interface Tunnel extends Interface {
-        root: Address;
+        parent: Address;
     }
 
-    export interface Route {
-        network: {
-            address: string;
-            cidr: number;
-        };
+    export interface Route extends includesAddress, Comment {
+        network: string;
+        cidr: number;
+        distance: number;
+        scope: number;
+        vrf: string;
         preferred_source?: string;
         gateway?: string;
         iface?: string;
         tunnel?: Tunnel;
-        distance: number;
-        scope: number;
         target_scope?: number;
-        vrf: string;
     }
 
     export interface RouteCount {
@@ -128,15 +232,13 @@ export namespace Response {
     }
 
     export interface Ping {
-        source?: string;
         target: string;
         latency: number;
+        source?: string;
     }
 
     export interface Traceroute {
         hop: number;
-        address?: string;
-        hostname?: string;
         loss: number;
         sent: number;
         last: number;
@@ -144,5 +246,57 @@ export namespace Response {
         best: number;
         worst: number;
         timeout: boolean;
+        address?: string;
+        hostname?: string;
+    }
+
+    export interface Routerboard {
+        routerboard: boolean;
+        board_name: string;
+        model: string;
+        serial_number: string;
+        firmware_type: string;
+        factory_firmware: string;
+        current_firmware: string;
+        upgrade_firmware: string;
+    }
+
+    export interface Resource {
+        uptime: string;
+        version: string;
+        build_time: Date;
+        factory_sofware: string;
+        free_memory: string;
+        total_memory: string;
+        cpu: string;
+        cpu_count: number;
+        cpu_frequency: number;
+        cpu_load: number;
+        hdd_space: {
+            free: string;
+            total: string;
+        };
+        architecture_name: string;
+        board_name: string;
+        platform: string;
+        lts?: boolean;
+        stable?: boolean;
+        testing?: boolean;
+        development?: boolean;
+        nvram?: {
+            write_since_reboot: number;
+            write_total: number;
+            bad_blocks: number;
+        }
+    }
+
+    export interface Health {
+        voltage: number;
+        current: number;
+        temperature: number;
+        power_consumption: number;
+        psu_voltage?: number;
+        psu1_voltage?: number;
+        psu2_voltage?: number;
     }
 }
