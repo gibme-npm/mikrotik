@@ -72,16 +72,20 @@ export default class Mikrotik extends SSH {
             const address = _network[0];
             const cidr = parseInt(_network[1]);
             const [gateway, iface] = (() => {
-                if (route.gateway.includes('%')) {
-                    return route.gateway.split('%', 2);
-                } else if (ip.isV4Format(route.gateway)) {
-                    const ip = ips.filter(ip => ip.isLocal(route.gateway)).shift();
+                if (route.gateway) {
+                    if (route.gateway.includes('%')) {
+                        return route.gateway.split('%', 2);
+                    } else if (ip.isV4Format(route.gateway)) {
+                        const ip = ips.filter(ip => ip.isLocal(route.gateway)).shift();
 
-                    return [route.gateway, ip?.iface];
+                        return [route.gateway, ip?.iface];
+                    } else {
+                        const ip = ips.filter(ip => ip.iface === route.gateway).shift();
+
+                        return [ip?.ipaddress, route.gateway];
+                    }
                 } else {
-                    const ip = ips.filter(ip => ip.iface === route.gateway).shift();
-
-                    return [ip?.ipaddress, route.gateway];
+                    return [undefined, undefined];
                 }
             })();
             const distance = parseInt(route.distance);
