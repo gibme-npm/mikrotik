@@ -436,9 +436,15 @@ export default class Mikrotik extends SSH {
 
             this.on('stream', handleStream);
 
+            const cleanup = async () => {
+                this.off('stream', handleStream);
+
+                await Mikrotik.cache.del(target);
+            };
+
             await Mikrotik.cache.set(target, target, options.duration); // set our mutex
 
-            await this.stream(`/tool bandwidth-test protocol=${options.protocol} ` +
+            const cancel = await this.stream(`/tool bandwidth-test protocol=${options.protocol} ` +
                 `user=${username} password=${password} ` +
                 `duration=${options.duration}s direction=${options.direction} ` +
                 `address=${target} random-data=${options.random_data ? 'yes' : 'no'} interval=1s`,
@@ -446,7 +452,19 @@ export default class Mikrotik extends SSH {
                 separator: '\r\n\r\n'
             });
 
-            await Mikrotik.cache.del(target); // release our mutex
+            this.once('stream_complete', async () => {
+                await cleanup();
+            });
+
+            this.once('stream_cancelled', async () => {
+                await cleanup();
+
+                return reject(new Error('Bandwidth Test Cancelled'));
+            });
+
+            if (options.timeout) {
+                setTimeout(cancel, options.timeout);
+            }
         });
     }
 

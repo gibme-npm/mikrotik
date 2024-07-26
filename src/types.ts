@@ -82,6 +82,7 @@ export namespace BandwidthTest {
         protocol: Protocol;
         random_data: boolean;
         callback: (frame: Update) => void;
+        timeout: number;
     }
 }
 
