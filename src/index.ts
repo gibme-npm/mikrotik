@@ -444,13 +444,23 @@ export default class Mikrotik extends SSH {
 
             await Mikrotik.cache.set(target, target, options.duration); // set our mutex
 
-            const cancel = await this.stream(`/tool bandwidth-test protocol=${options.protocol} ` +
+            let command = `/tool bandwidth-test protocol=${options.protocol} ` +
                 `user=${username} password=${password} ` +
                 `duration=${options.duration}s direction=${options.direction} ` +
-                `address=${target} random-data=${options.random_data ? 'yes' : 'no'} interval=1s`,
-            {
-                separator: '\r\n\r\n'
-            });
+                `address=${target} random-data=${options.random_data ? 'yes' : 'no'} interval=1s`;
+
+            if (options.local_tx_speed) {
+                command += ` local-tx-speed=${options.local_tx_speed}M`;
+            }
+
+            if (options.remote_tx_speed) {
+                command += ` remote-tx-speed=${options.remote_tx_speed}M`;
+            }
+
+            const cancel = await this.stream(command,
+                {
+                    separator: '\r\n\r\n'
+                });
 
             this.once('stream_complete', async () => {
                 await cleanup();
@@ -746,7 +756,9 @@ export default class Mikrotik extends SSH {
      * @param command
      * @protected
      */
-    protected async terse<Type extends object = any> (command: string): Promise<Type[]> {
+    public async terse<Type extends object = any> (
+        command: string
+    ): Promise<Type[]> {
         const results: Type[] = [];
 
         const lines = (await this.exec(command))
@@ -782,7 +794,9 @@ export default class Mikrotik extends SSH {
      * @param command
      * @protected
      */
-    protected async kvs<Type extends object = any> (command: string): Promise<Type> {
+    public async kvs<Type extends object = any> (
+        command: string
+    ): Promise<Type> {
         const result: Type = {} as any;
 
         const lines = (await this.exec(command))

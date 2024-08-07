@@ -83,6 +83,14 @@ export namespace BandwidthTest {
         random_data: boolean;
         callback: (frame: Update) => void;
         timeout: number;
+        /**
+         * In Megabits
+         */
+        local_tx_speed: number;
+        /**
+         * In Megabits
+         */
+        remote_tx_speed: number;
     }
 }
 
