@@ -18,6 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import type { AbortSignal } from 'abort-controller';
+
 export namespace BandwidthTest {
     export type Direction = 'both' | 'transmit' | 'receive';
 
@@ -83,6 +85,7 @@ export namespace BandwidthTest {
         random_data: boolean;
         callback: (frame: Update) => void;
         timeout: number;
+        signal: AbortSignal;
         /**
          * In Megabits
          */

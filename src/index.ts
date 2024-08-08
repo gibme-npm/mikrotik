@@ -18,12 +18,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import SSH from '@gibme/ssh';
+import SSH, { AbortController, AbortSignal } from '@gibme/ssh';
 import { BandwidthTest, CommandResponses, Response } from './types';
 import { Address4 } from 'ip-address';
 import Cache from '@gibme/cache/memory';
 import { reverse } from 'dns';
 import { coerce, valid } from 'semver';
+export { AbortController, AbortSignal };
 
 export type { ConnectConfig } from '@gibme/ssh';
 
@@ -322,6 +323,9 @@ export default class Mikrotik extends SSH {
         const sleep = async (timeout: number) =>
             new Promise(resolve => setTimeout(resolve, timeout));
 
+        const controller = new AbortController();
+        options.signal ??= controller.signal;
+
         // eslint-disable-next-line no-async-promise-executor
         return new Promise(async (resolve, reject) => {
             options.duration ??= 15;
@@ -457,9 +461,10 @@ export default class Mikrotik extends SSH {
                 command += ` remote-tx-speed=${options.remote_tx_speed}M`;
             }
 
-            const cancel = await this.stream(command,
+            await this.stream(command,
                 {
-                    separator: '\r\n\r\n'
+                    separator: '\r\n\r\n',
+                    signal: options.signal
                 });
 
             this.once('stream_complete', async () => {
@@ -473,7 +478,9 @@ export default class Mikrotik extends SSH {
             });
 
             if (options.timeout) {
-                setTimeout(cancel, options.timeout);
+                setTimeout(() => {
+                    options.signal?.dispatchEvent(new Event('abort'));
+                }, options.timeout);
             }
         });
     }
