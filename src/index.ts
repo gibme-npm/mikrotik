@@ -780,6 +780,10 @@ export default class Mikrotik extends SSH {
             line.split(/\s+/)
                 .map(col => col.trim())
                 .forEach(col => {
+                    if (!(result as any).idx && !isNaN(parseInt(col))) {
+                        (result as any).idx = parseInt(col);
+                    }
+
                     if (col.includes('=')) {
                         const [key, ...value] = col.split('=');
 
