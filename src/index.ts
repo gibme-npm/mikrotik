@@ -768,33 +768,67 @@ export default class Mikrotik extends SSH {
     ): Promise<Type[]> {
         const results: Type[] = [];
 
-        const lines = (await this.exec(command))
-            .toString()
+        (await this.exec(command)).toString()
             .split('\r\n')
             .map(line => line.trim())
-            .filter(line => line.split(/\s+/).length !== 0 && line.length !== 0);
+            .filter(line => line.split(/\s+/).length !== 0 && line.length !== 0)
+            .forEach(line => {
+                const result = (() => {
+                    const [, flags] = line.split(/\s+/).map(part => part.trim());
+                    const result: any = {};
 
-        lines.forEach(line => {
-            const result: Type = {} as any;
-
-            line.split(/\s+/)
-                .map(col => col.trim())
-                .forEach(col => {
-                    if (!(result as any).idx && !isNaN(parseInt(col))) {
-                        (result as any).idx = parseInt(col);
+                    // get the id or the number
+                    if (line.startsWith('*')) {
+                        result.id = line.split(/\s/).shift();
+                    } else if (!isNaN(parseInt(line))) {
+                        result.idx = parseInt(line);
                     }
 
-                    if (col.includes('=')) {
-                        const [key, ...value] = col.split('=');
+                    result.flags = flags.includes('=') ? '' : flags;
 
-                        (result as any)[key] = value.join('=');
+                    return result;
+                })();
+
+                /**
+                 * This looks like a mess; however, RouterOS will return values with spaced
+                 * which causes havoc if a simple regex matcher is applied to the key-value pairs
+                 */
+                do {
+                    const middle = line.indexOf('=') + 1;
+                    const start = (() => {
+                        const start = line.substring(0, middle).lastIndexOf(' ');
+                        return start === -1 ? 0 : start;
+                    })();
+                    const next = (() => {
+                        const next = line.substring(middle).indexOf('=');
+                        return next === -1 ? -1 : next + middle;
+                    })();
+                    const end = (() => {
+                        if (next === -1) return -1;
+                        const end = line.substring(middle, next).lastIndexOf(' ');
+                        return end === -1 ? -1 : end + middle;
+                    })();
+
+                    const [key, value] = line.substring(start, end !== -1 ? end : undefined)
+                        .trim().split(/=/);
+
+                    if (parseFloat(value).toString() === value) {
+                        result[key] = parseFloat(value);
+                    } else if (parseInt(value).toString() === value) {
+                        result[key] = parseInt(value);
                     } else {
-                        (result as any)[col] = col;
+                        result[key] = value;
                     }
-                });
 
-            if (Object.keys(result).length !== 0) results.push(result);
-        });
+                    if (end > 0) {
+                        line = line.substring(end);
+                    } else {
+                        line = '';
+                    }
+                } while (line.length !== 0);
+
+                if (Object.keys(result).length !== 0) results.push(result);
+            });
 
         return results;
     }
