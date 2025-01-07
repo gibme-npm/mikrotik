@@ -55,10 +55,10 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@gibme/cache": "^1.1.5",
-    "@gibme/ssh": "^2.0.0",
+    "@gibme/cache": "^1.1.12",
+    "@gibme/ssh": "^2.0.1",
     "@types/jsbn": "^1.2.33",
-    "ip-address": "^9.0.5",
-    "semver": "^7.6.2"
+    "ip-address": "^10.0.1",
+    "semver": "^7.6.3"
   }
 }
