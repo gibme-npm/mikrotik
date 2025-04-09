@@ -1,6 +1,6 @@
 {
   "name": "@gibme/mikrotik",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "A simple mikrotik helper/wrapper",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -55,10 +55,10 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@gibme/cache": "^1.1.12",
+    "@gibme/cache": "^1.1.13",
     "@gibme/ssh": "^2.0.1",
     "@types/jsbn": "^1.2.33",
     "ip-address": "^10.0.1",
-    "semver": "^7.6.3"
+    "semver": "^7.7.1"
   }
 }
