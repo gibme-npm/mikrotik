@@ -1,4 +1,4 @@
-// Copyright (c) 2024, Brandon Lehmann <brandonlehmann@gmail.com>
+// Copyright (c) 2024-2025, Brandon Lehmann <brandonlehmann@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -18,32 +18,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import SSH, { AbortController, AbortSignal } from '@gibme/ssh';
-import { BandwidthTest, CommandResponses, Response } from './types';
+import SSH from '@gibme/ssh';
 import { Address4 } from 'ip-address';
 import Cache from '@gibme/cache/memory';
 import { reverse } from 'dns';
 import { coerce, valid } from 'semver';
+import { AbortController, AbortSignal } from 'abort-controller';
 export { AbortController, AbortSignal };
 
 export type { ConnectConfig } from '@gibme/ssh';
-
-export type Direction = BandwidthTest.Direction;
-export type Protocol = BandwidthTest.Protocol;
-export type Status = BandwidthTest.Status;
-export type Update = BandwidthTest.Update;
-export type Options = BandwidthTest.Options;
-
-export type Address = Response.Address;
-export type Interface = Response.Interface;
-export type Tunnel = Response.Tunnel;
-export type Route = Response.Route;
-export type RouteCount = Response.RouteCount;
-export type Ping = Response.Ping;
-export type Traceroute = Response.Traceroute;
-export type RouterBoard = Response.Routerboard
-export type Resource = Response.Resource;
-export type Health = Response.Health;
 
 /** @ignore */
 const toVersion = (version: string) => valid(coerce(version)) || version;
@@ -57,7 +40,7 @@ const toIP4 = (address: string) => {
     }
 };
 
-export default class Mikrotik extends SSH {
+export class Mikrotik extends SSH {
     protected static cache: Cache = new Cache({
         stdTTL: 15,
         checkperiod: 17
@@ -74,7 +57,7 @@ export default class Mikrotik extends SSH {
         min_distance = 0,
         vrf?: string,
         active_only = true
-    ): Promise<Route[]> {
+    ): Promise<Mikrotik.Response.Route[]> {
         const [ifaces, ips] = await Promise.all([
             this.get_interfaces(),
             this.get_ip_addresses()
@@ -82,7 +65,7 @@ export default class Mikrotik extends SSH {
 
         const command = `/ip route print terse without-paging${active_only ? ' where active' : ''}`;
 
-        const routes = await this.terse<CommandResponses.Route>(command);
+        const routes = await this.terse<Mikrotik.Response.Command.Route>(command);
 
         return routes.map(route => {
             const _network = route['dst-address'].split('/');
@@ -115,7 +98,7 @@ export default class Mikrotik extends SSH {
             const preferred_source = ips.filter(ip => gateway ? ip.includes(gateway) : false).shift()?.ipaddress;
             const _vrf = route['routing-table'] || route['routing-mark'] || 'main';
 
-            const tunnel: Tunnel | undefined = (() => {
+            const tunnel: Mikrotik.Response.Tunnel | undefined = (() => {
                 const tunnel = ifaces.filter(_iface => _iface.name === iface).shift();
                 const parent = ips.filter(ip => ip.ipaddress === tunnel?.local_address).shift();
 
@@ -127,7 +110,7 @@ export default class Mikrotik extends SSH {
                 };
             })();
 
-            const result: Route = {
+            const result: Mikrotik.Response.Route = {
                 network: address,
                 cidr,
                 distance,
@@ -163,17 +146,17 @@ export default class Mikrotik extends SSH {
      */
     public async get_ip_addresses (
         active_only = true
-    ): Promise<Address[]> {
+    ): Promise<Mikrotik.Response.Address[]> {
         const command = `/ip address print terse without-paging${active_only ? ' where !disabled' : ''}`;
 
-        const addresses = await this.terse<CommandResponses.Address>(command);
+        const addresses = await this.terse<Mikrotik.Response.Command.Address>(command);
 
         return addresses.map(line => {
             const _address = line.address.split('/');
             const ipaddress = _address[0];
             const cidr = parseInt(_address[1]);
 
-            const result: Address = {
+            const result: Mikrotik.Response.Address = {
                 ipaddress,
                 network: line.network,
                 cidr,
@@ -199,21 +182,21 @@ export default class Mikrotik extends SSH {
      *
      * @param active_only
      */
-    public async get_interfaces (active_only = true): Promise<Interface[]> {
+    public async get_interfaces (active_only = true): Promise<Mikrotik.Response.Interface[]> {
         const filter = active_only ? ' where !disabled' : '';
 
         const [ifaces, gre, ipip, eoip] = await Promise.all([
-            this.terse<CommandResponses.Interface>(
+            this.terse<Mikrotik.Response.Command.Interface>(
                 `/interface print terse without-paging${filter}`),
-            this.terse<CommandResponses.TunnelInterface>(
+            this.terse<Mikrotik.Response.Command.Tunnel>(
                 `/interface gre print terse without-paging${filter}`),
-            this.terse<CommandResponses.TunnelInterface>(
+            this.terse<Mikrotik.Response.Command.Tunnel>(
                 `/interface ipip print terse without-paging${filter}`),
-            this.terse<CommandResponses.TunnelInterface>(
+            this.terse<Mikrotik.Response.Command.Tunnel>(
                 `/interface eoip print terse without-paging${filter}`)
         ]);
 
-        const tunnels: CommandResponses.TunnelInterface[] = [...gre, ...ipip, ...eoip];
+        const tunnels: Mikrotik.Response.Command.Tunnel[] = [...gre, ...ipip, ...eoip];
 
         return ifaces.map(line => {
             const _type = (() => {
@@ -240,7 +223,7 @@ export default class Mikrotik extends SSH {
             const local_address = tunnel?.['local-address'];
             const remote_address = tunnel?.['remote-address'];
 
-            const result: Interface = {
+            const result: Mikrotik.Response.Interface = {
                 name: line.name,
                 type: _type
             };
@@ -263,13 +246,13 @@ export default class Mikrotik extends SSH {
     public async get_route_counts (
         min_distance = 0,
         vrf?: string
-    ): Promise<Record<string, RouteCount>> {
+    ): Promise<Record<string, Mikrotik.Response.Route.Count>> {
         const [routes, ips] = await Promise.all([
             this.get_ip_routes(min_distance, vrf),
             this.get_ip_addresses()
         ]);
 
-        const results: Record<string, RouteCount> = {};
+        const results: Record<string, Mikrotik.Response.Route.Count> = {};
 
         ips.forEach(ip => {
             results[ip.ipaddress] = {
@@ -315,11 +298,8 @@ export default class Mikrotik extends SSH {
         target: string,
         username: string,
         password: string,
-        options: Partial<Options> = {}
-    ): Promise<Update> {
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        const $ = this;
-
+        options: Partial<Mikrotik.BandwidthTest.Options> = {}
+    ): Promise<Mikrotik.BandwidthTest.Update> {
         const sleep = async (timeout: number) =>
             new Promise(resolve => setTimeout(resolve, timeout));
 
@@ -390,9 +370,9 @@ export default class Mikrotik extends SSH {
              * @param buffer
              */
             async function handleStream (buffer: Buffer) {
-                const frame = new BandwidthTest.Frame(buffer).parse();
+                const frame = new Mikrotik.BandwidthTest.Frame(buffer).parse();
 
-                const result: Update = {
+                const result: Mikrotik.BandwidthTest.Update = {
                     status: frame.status as any,
                     duration: parseInt(frame.duration) || 0,
                     randomData: frame['random-data'] === 'yes',
@@ -425,10 +405,8 @@ export default class Mikrotik extends SSH {
                 switch (result.status) {
                     case 'done testing':
                         if (options.callback) options.callback(result);
-                        $.off('stream', handleStream);
                         return resolve(result);
                     case 'authentication_failed':
-                        $.off('stream', handleStream);
                         return reject(new Error('Authentication Failed'));
                     case 'connecting':
                     case 'running':
@@ -438,11 +416,7 @@ export default class Mikrotik extends SSH {
                 }
             }
 
-            this.on('stream', handleStream);
-
             const cleanup = async () => {
-                this.off('stream', handleStream);
-
                 await Mikrotik.cache.del(target);
             };
 
@@ -461,17 +435,19 @@ export default class Mikrotik extends SSH {
                 command += ` remote-tx-speed=${options.remote_tx_speed}M`;
             }
 
-            await this.stream(command,
-                {
-                    separator: '\r\n\r\n',
-                    signal: options.signal
-                });
+            const stream = await this.stream(command, { separator: '\r\n\r\n' });
 
-            this.once('stream_complete', async () => {
+            options.signal?.addEventListener('abort', () => {
+                stream.abort();
+            });
+
+            stream.on('data', handleStream);
+
+            stream.on('completed', async () => {
                 await cleanup();
             });
 
-            this.once('stream_cancelled', async () => {
+            stream.on('cancelled', async () => {
                 await cleanup();
 
                 return reject(new Error('Bandwidth Test Cancelled'));
@@ -479,7 +455,7 @@ export default class Mikrotik extends SSH {
 
             if (options.timeout) {
                 setTimeout(() => {
-                    options.signal?.dispatchEvent(new Event('abort'));
+                    stream.abort();
                 }, options.timeout);
             }
         });
@@ -491,8 +467,8 @@ export default class Mikrotik extends SSH {
      * @param target
      * @param source
      */
-    public async ping (target: string, source?: string): Promise<Ping> {
-        const result: Ping = {
+    public async ping (target: string, source?: string): Promise<Mikrotik.Response.Ping> {
+        const result: Mikrotik.Response.Ping = {
             target,
             latency: 2000
         };
@@ -532,7 +508,7 @@ export default class Mikrotik extends SSH {
     public async traceroute (
         target: string,
         source?: string
-    ): Promise<Traceroute[]> {
+    ): Promise<Mikrotik.Response.Traceroute[]> {
         const command = `/tool traceroute address=${target} count=1${source ? ` src-address=${source}` : ''}`;
 
         const response = (await this.exec(command))
@@ -549,18 +525,22 @@ export default class Mikrotik extends SSH {
 
         if (!response) throw new Error(`Could not perform traceroute to ${target}`);
 
-        const results: Traceroute[] = [];
+        const results: Mikrotik.Response.Traceroute[] = [];
 
         const resolveDNS = async (ip: string): Promise<[string, string | undefined]> => new Promise(resolve => {
-            reverse(ip, (error, addresses) => {
-                if (error) return resolve([ip, undefined]);
+            try {
+                reverse(ip, (error, addresses) => {
+                    if (error) return resolve([ip, undefined]);
 
-                return resolve([ip, addresses.shift()]);
-            });
+                    return resolve([ip, addresses.shift()]);
+                });
+            } catch {
+                return resolve([ip, undefined]);
+            }
         });
 
         for (const [hop, address, loss, sent, last, avg, best, worst] of response) {
-            const result: Traceroute = {
+            const result: Mikrotik.Response.Traceroute = {
                 hop: parseInt(hop),
                 loss: (sent === 'timeout' ? parseInt(address) : parseInt(loss)) / 100,
                 sent: sent === 'timeout' ? parseInt(loss) : parseInt(sent),
@@ -593,8 +573,8 @@ export default class Mikrotik extends SSH {
     /**
      * Fetches routerboard information from the device
      */
-    public async routerboard (): Promise<Response.Routerboard> {
-        const result = await this.kvs<CommandResponses.Routeboard>(
+    public async routerboard (): Promise<Mikrotik.Response.Routerboard> {
+        const result = await this.kvs<Mikrotik.Response.Command.Routerboard>(
             '/system routerboard print');
 
         return {
@@ -613,7 +593,7 @@ export default class Mikrotik extends SSH {
      * Fetches the identity of the device
      */
     public async identity (): Promise<string> {
-        const response = await this.kvs<CommandResponses.Identity>(
+        const response = await this.kvs<Mikrotik.Response.Command.Identity>(
             '/system identity print');
 
         return response.name;
@@ -622,11 +602,11 @@ export default class Mikrotik extends SSH {
     /**
      * Fetches the resource information of the device
      */
-    public async resource (): Promise<Response.Resource> {
-        const response = await this.kvs<CommandResponses.Resource>(
+    public async resource (): Promise<Mikrotik.Response.Resource> {
+        const response = await this.kvs<Mikrotik.Response.Command.Resource>(
             '/system resource print');
 
-        const result: Response.Resource = {
+        const result: Mikrotik.Response.Resource = {
             uptime: response.uptime,
             version: toVersion(response.version),
             build_time: new Date(`${response['build-time']}Z`),
@@ -693,13 +673,13 @@ export default class Mikrotik extends SSH {
     /**
      * Fetches the current health information
      */
-    public async health (): Promise<Response.Health> {
+    public async health (): Promise<Mikrotik.Response.V6.Health | Mikrotik.Response.V7.Health> {
         const { major } = await this.semantic_version();
 
-        const result: Response.Health = {} as any;
-
         if (major === 6) {
-            const response = await this.kvs<CommandResponses.Health>(
+            const result: Mikrotik.Response.V6.Health = {} as any;
+
+            const response = await this.kvs<Mikrotik.Response.Command.V6.Health>(
                 '/system health print');
 
             result.voltage = parseFloat(response.voltage) || 0;
@@ -721,33 +701,45 @@ export default class Mikrotik extends SSH {
 
             return result;
         } else if (major === 7) {
+            const result: Mikrotik.Response.V7.Health = {} as any;
+
             const response = await this.terse<{ name: string, value: string, type: string }>(
                 '/system health print terse');
 
-            for (const { name, value, type } of response) {
+            for (const { name, value } of response) {
                 const num = parseFloat(value) || 0;
 
                 switch (name) {
-                    case 'voltage':
-                        result.voltage = num;
+                    case 'cpu-temperature':
+                        result.cpu_temperature = num;
                         break;
-                    case 'temperature':
-                        result.temperature = num;
+                    case 'sfp-temperature':
+                        result.sfp_temperature = num;
                         break;
-                    case 'power-consumption':
-                        result.power_consumption = num;
+                    case 'switch-temperature':
+                        result.switch_temperature = num;
                         break;
-                    case 'current':
-                        result.current = type === 'A' ? num * 1000 : num;
+                    case 'fan-state':
+                        result.fan_state = value;
                         break;
-                    case 'psu-voltage':
-                        result.psu_voltage = num;
+                    case 'fan1-speed':
+                        result.fan1_speed = num;
                         break;
-                    case 'psu1-voltage':
-                        result.psu1_voltage = num;
+                    case 'fan2-speed':
+                        result.fan2_speed = num;
                         break;
-                    case 'psu2-voltage':
-                        result.psu2_voltage = num;
+                    case 'board-temperature1':
+                        result.board_temperature1 = num;
+                        break;
+                    case 'board-temperature2':
+                        result.board_temperature2 = num;
+                        break;
+                    case 'psu1-state':
+                        result.psu1_state = value;
+                        break;
+                    case 'psu2-state':
+                        result.psu2_state = value;
+                        break;
                 }
             }
 
@@ -859,3 +851,317 @@ export default class Mikrotik extends SSH {
         return result;
     }
 }
+
+export namespace Mikrotik {
+    export namespace BandwidthTest {
+        export type Direction = 'both' | 'transmit' | 'receive';
+
+        export type Protocol = 'udp' | 'tcp';
+
+        export type Status = 'running' | 'connecting' | 'done testing' | 'authentication_failed' | 'queued';
+
+        /**
+         * Class that helps with processing a "frame" of the Bandwidth Test response
+         */
+        export class Frame {
+            private parsed?: Record<string, string>;
+
+            // eslint-disable-next-line no-useless-constructor
+            constructor (public readonly buffer: Buffer) {
+            }
+
+            public parse (): Record<string, string> {
+                if (!this.parsed) {
+                    this.parsed = {};
+
+                    const records = this.buffer.toString('utf8').trim()
+                        .split('\n')
+                        .map(line => line.trim())
+                        .map(line => line.split(':', 2)
+                            .map(elem => elem.trim()));
+
+                    for (const [key, value] of records) {
+                        if (key.length === 0) continue;
+
+                        this.parsed[key.toLowerCase()] = value;
+                    }
+                }
+
+                return this.parsed;
+            }
+        }
+
+        export interface DirectionStats {
+            current: number;
+            shortAverage: number;
+            totalAverage: number;
+            size: number;
+        }
+
+        export interface Update {
+            status: Status;
+            duration: number;
+            transmit?: DirectionStats;
+            receive?: DirectionStats;
+            lostPackets?: number;
+            randomData: boolean;
+            direction: Direction;
+            connectionCount: number;
+            localCPULoad: number;
+            remoteCPULoad: number;
+        }
+
+        export interface Options {
+            duration: number;
+            direction: Direction;
+            protocol: Protocol;
+            random_data: boolean;
+            callback: (frame: Update) => void;
+            timeout: number;
+            signal: AbortSignal;
+            /**
+             * In Megabits
+             */
+            local_tx_speed: number;
+            /**
+             * In Megabits
+             */
+            remote_tx_speed: number;
+        }
+    }
+
+    export type YesNo = 'yes' | 'no';
+
+    export type Comment = {
+        comment?: string;
+    }
+
+    export namespace Response {
+        export namespace Command {
+            export type Route = Comment & {
+                'dst-address': string;
+                gateway: string;
+                distance: string;
+                scope: string;
+                target_scope: string;
+                'routing-table'?: string;
+                'routing-mark'?: string;
+                'bgp-as-path'?: string;
+                'bgp-origin'?: string;
+                'bgp-local-pref'?: string;
+                'received-from'?: string;
+                'check-gateway'?: string;
+                'suppress-hw-offload'?: string;
+                'blackhole'?: string;
+                'immediate-gw'?: string;
+                reachable?: string;
+                'gateway-status'?: string;
+            }
+
+            export type Address = Comment & {
+                address: string;
+                network: string;
+                interface: string;
+                'actual-interface': string;
+            }
+
+            export type Interface = Comment & {
+                name: string;
+                type: string;
+                mtu: string;
+                'default-name'?: string;
+                'actual-mtu': string;
+                'mac-address'?: string;
+                'link-downs'?: string;
+                l2mtu?: string;
+            }
+
+            export type Tunnel = Omit<Interface, 'type'> & Comment & {
+                'local-address': string;
+                'remote-address': string;
+                'clamp-tcp-mss': YesNo;
+                'dont-fragment': YesNo;
+                'allow-fast-path': YesNo;
+            }
+
+            export type Routerboard = {
+                routerboard: YesNo;
+                'board-name': string;
+                model: string;
+                'serial-number': string;
+                'firmware-type': string;
+                'factory-firmware': string;
+                'current-firmware': string;
+                'upgrade-firmware': string;
+            }
+
+            export type Identity = {
+                name: string;
+            }
+
+            export type Resource = {
+                uptime: string;
+                version: string;
+                'build-time': string;
+                'factory-software': string;
+                'free-memory': string;
+                'total-memory': string;
+                cpu: string;
+                'cpu-count': string;
+                'cpu-frequency': string;
+                'cpu-load': string;
+                'free-hdd-space': string;
+                'total-hdd-space': string;
+                'architecture-name': string;
+                'board-name': string;
+                platform: string;
+                'write-sect-since-reboot'?: string;
+                'write-sect-total'?: string;
+                'bad-blocks'?: string;
+            }
+
+            export namespace V6 {
+                export type Health = {
+                    voltage: string;
+                    current: string;
+                    temperature: string;
+                    'power-consumption': string;
+                    'psu-voltage'?: string;
+                    'psu1-voltage'?: string;
+                    'psu2-voltage'?: string;
+                }
+            }
+        }
+
+        export type includesAddress = {
+            includes(ipaddress: string): boolean;
+        }
+
+        export type Address = includesAddress & Comment & {
+            ipaddress: string;
+            network: string;
+            cidr: number;
+            iface: string;
+        }
+
+        export type Interface = Comment & {
+            name: string;
+            type: string;
+            local_address?: string;
+            remote_address?: string;
+        }
+
+        export type Tunnel = Interface & {
+            parent: Address;
+        }
+
+        export type Route = includesAddress & Comment & {
+            network: string;
+            cidr: number;
+            distance: number;
+            scope: number;
+            vrf: string;
+            preferred_source?: string;
+            gateway?: string;
+            iface?: string;
+            tunnel?: Tunnel;
+            target_scope?: number;
+        }
+
+        export namespace Route {
+            export type Count = {
+                interface: string;
+                count: number;
+                active: boolean;
+            }
+        }
+
+        export type Ping = {
+            target: string;
+            latency: number;
+            source?: string;
+        }
+
+        export type Traceroute = {
+            hop: number;
+            loss: number;
+            sent: number;
+            last: number;
+            average: number;
+            best: number;
+            worst: number;
+            timeout: boolean;
+            address?: string;
+            hostname?: string;
+        }
+
+        export type Routerboard = {
+            routerboard: boolean;
+            board_name: string;
+            model: string;
+            serial_number: string;
+            firmware_type: string;
+            factory_firmware: string;
+            current_firmware: string;
+            upgrade_firmware: string;
+        }
+
+        export type Resource = {
+            uptime: string;
+            version: string;
+            build_time: Date;
+            factory_sofware: string;
+            free_memory: string;
+            total_memory: string;
+            cpu: string;
+            cpu_count: number;
+            cpu_frequency: number;
+            cpu_load: number;
+            hdd_space: {
+                free: string;
+                total: string;
+            };
+            architecture_name: string;
+            board_name: string;
+            platform: string;
+            lts?: boolean;
+            stable?: boolean;
+            testing?: boolean;
+            development?: boolean;
+            nvram?: {
+                write_since_reboot: number;
+                write_total: number;
+                bad_blocks: number;
+            }
+        }
+
+        export namespace V6 {
+            export type Health = {
+                voltage: number;
+                current: number;
+                temperature: number;
+                power_consumption: number;
+                psu_voltage?: number;
+                psu1_voltage?: number;
+                psu2_voltage?: number;
+            }
+        }
+
+        export namespace V7 {
+            export type Health = {
+                cpu_temperature: number;
+                sfp_temperature: number;
+                switch_temperature: number;
+                fan_state: string;
+                fan1_speed: number;
+                fan2_speed: number;
+                board_temperature1: number;
+                board_temperature2: number;
+                psu1_state: string;
+                psu2_state: string;
+            }
+        }
+    }
+}
+
+export default Mikrotik;
