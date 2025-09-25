@@ -55,7 +55,7 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@gibme/cache": "^20.0.1",
+    "@gibme/cache": "^20.0.2",
     "@gibme/ssh": "^20.0.0",
     "@types/jsbn": "^1.2.33",
     "abort-controller": "^3.0.0",
