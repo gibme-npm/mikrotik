@@ -23,7 +23,7 @@ import { it, describe } from 'mocha';
 import assert from 'assert';
 import { config } from 'dotenv';
 
-config();
+config({ quiet: true });
 
 describe('Unit Tests', async () => {
     const enabled = !!(process.env.SSH_HOST && process.env.SSH_USER && process.env.SSH_PASSWORD);

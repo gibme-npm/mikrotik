@@ -866,7 +866,6 @@ export namespace Mikrotik {
         export class Frame {
             private parsed?: Record<string, string>;
 
-            // eslint-disable-next-line no-useless-constructor
             constructor (public readonly buffer: Buffer) {
             }
 
