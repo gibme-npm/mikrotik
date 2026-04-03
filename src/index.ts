@@ -23,8 +23,6 @@ import { Address4 } from 'ip-address';
 import Cache from '@gibme/cache/memory';
 import { reverse } from 'dns';
 import { coerce, valid } from 'semver';
-import { AbortController, AbortSignal } from 'abort-controller';
-export { AbortController, AbortSignal };
 
 export type { ConnectConfig } from '@gibme/ssh';
 
@@ -849,6 +847,14 @@ export class Mikrotik extends SSH {
         }
 
         return result;
+    }
+
+    /**
+     * Destroys the SSH connection and stops the internal cache timer
+     */
+    public override async destroy (): Promise<void> {
+        await super.destroy();
+        await Mikrotik.cache.disconnect();
     }
 }
 
