@@ -1,6 +1,6 @@
 {
   "name": "@gibme/mikrotik",
-  "version": "22.0.0",
+  "version": "22.0.1",
   "description": "A simple mikrotik helper/wrapper",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -60,7 +60,7 @@
     "@gibme/ssh": "^22.0.0",
     "@types/jsbn": "^1.2.33",
     "@types/semver": "^7.7.1",
-    "ip-address": "^10.1.0",
+    "ip-address": "^10.2.0",
     "semver": "^7.7.4"
   }
 }
